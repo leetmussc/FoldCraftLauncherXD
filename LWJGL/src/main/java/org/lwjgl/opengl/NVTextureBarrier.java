@@ -1,19 +1,28 @@
-/* MACHINE GENERATED FILE, DO NOT EDIT */
-
+/*
+ * Copyright LWJGL. All rights reserved.
+ * License terms: https://www.lwjgl.org/license
+ * MACHINE GENERATED FILE, DO NOT EDIT
+ */
 package org.lwjgl.opengl;
 
-import org.lwjgl.*;
-import java.nio.*;
+import org.lwjgl.system.*;
 
-public final class NVTextureBarrier {
+/**
+ * Native bindings to the <a href="https://www.khronos.org/registry/OpenGL/extensions/NV/NV_texture_barrier.txt">NV_texture_barrier</a> extension.
+ * 
+ * <p>This extension relaxes the restrictions on rendering to a currently bound texture and provides a mechanism to avoid read-after-write hazards.</p>
+ */
+public class NVTextureBarrier {
 
-	private NVTextureBarrier() {}
+    static { GL.initialize(); }
 
-	public static void glTextureBarrierNV() {
-		ContextCapabilities caps = GLContext.getCapabilities();
-		long function_pointer = caps.glTextureBarrierNV;
-		BufferChecks.checkFunctionAddress(function_pointer);
-		nglTextureBarrierNV(function_pointer);
-	}
-	static native void nglTextureBarrierNV(long function_pointer);
+    protected NVTextureBarrier() {
+        throw new UnsupportedOperationException();
+    }
+
+    // --- [ glTextureBarrierNV ] ---
+
+    /** Guarantees that writes have completed and caches have been invalidated before subsequent Draws are executed. */
+    public static native void glTextureBarrierNV();
+
 }

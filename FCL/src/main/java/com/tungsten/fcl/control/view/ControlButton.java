@@ -31,8 +31,9 @@ import com.tungsten.fcl.control.data.ControlButtonData;
 import com.tungsten.fcl.control.data.ControlViewGroup;
 import com.tungsten.fcl.control.data.CustomControl;
 import com.tungsten.fcl.util.AndroidUtils;
-import com.tungsten.fclauncher.FCLKeycodes;
+import com.tungsten.fclauncher.keycodes.FCLKeycodes;
 import com.tungsten.fclauncher.bridge.FCLBridge;
+import com.tungsten.fclcore.fakefx.beans.InvalidationListener;
 import com.tungsten.fclcore.fakefx.beans.binding.Bindings;
 import com.tungsten.fclcore.fakefx.beans.property.BooleanProperty;
 import com.tungsten.fclcore.fakefx.beans.property.BooleanPropertyBase;
@@ -53,25 +54,17 @@ import java.util.UUID;
 @SuppressLint("ViewConstructor")
 public class ControlButton extends AppCompatButton implements CustomView {
 
+    private final InvalidationListener notifyListener;
+    private final InvalidationListener dataChangeListener;
+    private final InvalidationListener boundaryListener;
+    private final InvalidationListener visibilityListener;
+    private final InvalidationListener alphaListener;
+
     private final GameMenu menu;
     private Path boundaryPath;
     private final Paint boundaryPaint;
     private final int screenWidth;
     private final int screenHeight;
-
-    private final BooleanProperty readyProperty = new SimpleBooleanProperty(this, "ready", false);
-
-    public BooleanProperty readyProperty() {
-        return readyProperty;
-    }
-
-    public void setReady(boolean ready) {
-        readyProperty.set(ready);
-    }
-
-    public boolean isReady() {
-        return readyProperty.get();
-    }
 
     private BooleanProperty visibilityProperty;
 
@@ -103,9 +96,11 @@ public class ControlButton extends AppCompatButton implements CustomView {
         return dataProperty.get();
     }
 
-    public ControlButton(@NonNull Context context, GameMenu gameMenu) {
+    public ControlButton(@NonNull Context context, GameMenu gameMenu, ViewListener listener) {
         super(context);
         this.menu = gameMenu;
+
+        setStateListAnimator(null);
 
         boundaryPath = new Path();
         boundaryPaint = new Paint();
@@ -116,29 +111,37 @@ public class ControlButton extends AppCompatButton implements CustomView {
         screenWidth = AndroidUtils.getScreenWidth(FCLApplication.getCurrentActivity());
         screenHeight = AndroidUtils.getScreenHeight(FCLApplication.getCurrentActivity());
 
+        notifyListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            notifyData();
+            cancelAllEvent();
+        });
+        dataChangeListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            notifyData();
+            cancelAllEvent();
+            getData().addListener(notifyListener);
+        });
+        boundaryListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            boundaryPath = new Path();
+            invalidate();
+        });
+        visibilityListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            if (!visibilityProperty.get()) {
+                cancelAllEvent();
+            }
+        });
+        alphaListener = invalidate -> Schedulers.androidUIThread().execute(() -> setAlpha(menu.isHideAllViews() ? 0 : 1));
+
         post(() -> {
             notifyData();
-            menu.editModeProperty().addListener(invalidate -> {
-                notifyData();
-                cancelAllEvent();
-            });
-            dataProperty.addListener(invalidate -> Schedulers.androidUIThread().execute(() -> {
-                notifyData();
-                cancelAllEvent();
-                getData().addListener(i -> Schedulers.androidUIThread().execute(() -> {
-                    notifyData();
-                    cancelAllEvent();
-                }));
-            }));
-            getData().addListener(invalidate -> Schedulers.androidUIThread().execute(() -> {
-                notifyData();
-                cancelAllEvent();
-            }));
-            menu.showViewBoundariesProperty().addListener(invalidate -> {
-                boundaryPath = new Path();
-                invalidate();
-            });
-            setReady(true);
+            menu.editModeProperty().addListener(notifyListener);
+            dataProperty.addListener(dataChangeListener);
+            getData().addListener(notifyListener);
+            menu.showViewBoundariesProperty().addListener(boundaryListener);
+            setAlpha(menu.isHideAllViews() ? 0 : 1);
+            menu.hideAllViewsProperty().addListener(alphaListener);
+            if (listener != null) {
+                listener.onReady(this);
+            }
         });
     }
 
@@ -195,11 +198,7 @@ public class ControlButton extends AppCompatButton implements CustomView {
                             (data.getBaseInfo().getVisibilityType() == BaseInfoData.VisibilityType.MENU && menu.getCursorMode() == FCLBridge.CursorEnabled)),
                     menu.cursorModeProperty(), parentVisibilityProperty()));
         }
-        visibilityProperty().addListener(observable -> {
-            if (!visibilityProperty.get()) {
-                cancelAllEvent();
-            }
-        });
+        visibilityProperty().addListener(visibilityListener);
     }
 
     private GradientDrawable drawableNormal;
@@ -306,7 +305,7 @@ public class ControlButton extends AppCompatButton implements CustomView {
                     float targetY = Math.max(0, Math.min(screenHeight - getHeight(), getY() + deltaY));
                     setX(targetX);
                     setY(targetY);
-                    if ((Math.abs(event.getX() - downX) > 1 || Math.abs(event.getY() - downY) > 1) && System.currentTimeMillis() - downTime < 400) {
+                    if ((Math.abs(event.getX() - downX) > 2 || Math.abs(event.getY() - downY) > 2) && System.currentTimeMillis() - downTime < 400) {
                         handler.removeCallbacks(deleteRunnable);
                     }
                     break;
@@ -633,5 +632,15 @@ public class ControlButton extends AppCompatButton implements CustomView {
     @Override
     public void switchParentVisibility() {
         setParentVisibility(!isParentVisibility());
+    }
+
+    @Override
+    public void removeListener() {
+        menu.editModeProperty().removeListener(notifyListener);
+        dataProperty.removeListener(dataChangeListener);
+        getData().removeListener(notifyListener);
+        menu.showViewBoundariesProperty().removeListener(boundaryListener);
+        visibilityProperty().removeListener(visibilityListener);
+        menu.hideAllViewsProperty().removeListener(alphaListener);
     }
 }

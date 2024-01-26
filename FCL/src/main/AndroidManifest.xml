@@ -58,7 +58,6 @@
         android:isGame="true"
         android:appCategory="game"
         android:theme="@style/Theme.FoldCraftLauncher"
-        android:extractNativeLibs="true"
         android:allowNativeHeapPointerTagging="false"
         tools:targetApi="33">
         <activity
@@ -88,9 +87,9 @@
             android:name=".activity.ShellActivity"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|keyboard|navigation"
-            android:screenOrientation="sensorLandscape"/>
+            android:screenOrientation="sensorPortrait"/>
         <activity
-            android:process=":game"
+            android:process=":jvm"
             android:launchMode="standard"
             android:multiprocess="true"
             android:alwaysRetainTaskState="true"

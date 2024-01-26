@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2020  huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package com.tungsten.fcl.game;
 
 import static com.tungsten.fclcore.util.Logging.LOG;
@@ -14,7 +31,7 @@ import com.tungsten.fcl.R;
 import com.tungsten.fcl.setting.Profile;
 import com.tungsten.fcl.setting.VersionSetting;
 import com.tungsten.fcl.util.AndroidUtils;
-import com.tungsten.fclauncher.FCLPath;
+import com.tungsten.fclauncher.utils.FCLPath;
 import com.tungsten.fclcore.download.LibraryAnalyzer;
 import com.tungsten.fclcore.event.Event;
 import com.tungsten.fclcore.event.EventManager;
@@ -254,8 +271,10 @@ public class FCLGameRepository extends DefaultGameRepository {
         File iconFile = getVersionIconFile(id);
         if (iconFile.exists())
             return BitmapDrawable.createFromPath(iconFile.getAbsolutePath());
-        else if (LibraryAnalyzer.analyze(version).has(LibraryAnalyzer.LibraryType.FORGE) || LibraryAnalyzer.analyze(version).has(LibraryAnalyzer.LibraryType.BOOTSTRAP_LAUNCHER))
+        else if (LibraryAnalyzer.analyze(version).has(LibraryAnalyzer.LibraryType.FORGE))
             return FCLPath.CONTEXT.getDrawable(R.drawable.img_forge);
+        else if (LibraryAnalyzer.analyze(version).has(LibraryAnalyzer.LibraryType.NEO_FORGE))
+            return FCLPath.CONTEXT.getDrawable(R.drawable.img_neoforge);
         else if (LibraryAnalyzer.analyze(version).has(LibraryAnalyzer.LibraryType.LITELOADER))
             return FCLPath.CONTEXT.getDrawable(R.drawable.img_chicken);
         else if (LibraryAnalyzer.analyze(version).has(LibraryAnalyzer.LibraryType.OPTIFINE))
@@ -316,7 +335,7 @@ public class FCLGameRepository extends DefaultGameRepository {
                 .setProfileName(FCLPath.CONTEXT.getString(R.string.app_name))
                 .setGameArguments(StringUtils.tokenize(vs.getMinecraftArgs()))
                 .setOverrideJavaArguments(StringUtils.tokenize(vs.getJavaArgs()))
-                .setMaxMemory(vs.isAutoMemory() ? null : (int)(getAllocatedMemory(
+                .setMaxMemory((int) (getAllocatedMemory(
                         vs.getMaxMemory() * 1024L * 1024L,
                         MemoryUtils.getFreeDeviceMemory(FCLPath.CONTEXT),
                         vs.isAutoMemory()
@@ -326,7 +345,6 @@ public class FCLGameRepository extends DefaultGameRepository {
                 .setWidth((int) (AndroidUtils.getScreenWidth(FCLApplication.getCurrentActivity()) * vs.getScaleFactor()))
                 .setHeight((int) (AndroidUtils.getScreenHeight(FCLApplication.getCurrentActivity()) * vs.getScaleFactor()))
                 .setServerIp(vs.getServerIp())
-                .setProcessPriority(vs.getProcessPriority())
                 .setJavaAgents(javaAgents)
                 .setBEGesture(vs.isBeGesture())
                 .setRenderer(vs.getRenderer());

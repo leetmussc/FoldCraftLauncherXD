@@ -31,6 +31,7 @@ import com.tungsten.fcl.control.data.CustomControl;
 import com.tungsten.fcl.control.data.DirectionEventData;
 import com.tungsten.fcl.util.AndroidUtils;
 import com.tungsten.fclauncher.bridge.FCLBridge;
+import com.tungsten.fclcore.fakefx.beans.InvalidationListener;
 import com.tungsten.fclcore.fakefx.beans.binding.Bindings;
 import com.tungsten.fclcore.fakefx.beans.property.BooleanProperty;
 import com.tungsten.fclcore.fakefx.beans.property.BooleanPropertyBase;
@@ -48,6 +49,12 @@ import java.util.UUID;
  */
 @SuppressLint("ViewConstructor")
 public class ControlDirection extends RelativeLayout implements CustomView {
+
+    private final InvalidationListener notifyListener;
+    private final InvalidationListener dataChangeListener;
+    private final InvalidationListener boundaryListener;
+    private final InvalidationListener visibilityListener;
+    private final InvalidationListener alphaListener;
 
     @Nullable
     private final GameMenu menu;
@@ -67,20 +74,6 @@ public class ControlDirection extends RelativeLayout implements CustomView {
     private static final double ANGLE_8D_OF_5P = 247.5;
     private static final double ANGLE_8D_OF_6P = 292.5;
     private static final double ANGLE_8D_OF_7P = 337.5;
-
-    private final BooleanProperty readyProperty = new SimpleBooleanProperty(this, "ready", false);
-
-    public BooleanProperty readyProperty() {
-        return readyProperty;
-    }
-
-    public void setReady(boolean ready) {
-        readyProperty.set(ready);
-    }
-
-    public boolean isReady() {
-        return readyProperty.get();
-    }
 
     private BooleanProperty visibilityProperty;
 
@@ -112,11 +105,15 @@ public class ControlDirection extends RelativeLayout implements CustomView {
         return dataProperty.get();
     }
 
-    public ControlDirection(Context context, @Nullable GameMenu menu, boolean displayMode) {
+    public ControlDirection(Context context, @Nullable GameMenu menu, boolean displayMode, ViewListener listener) {
         super(context);
         this.menu = menu;
         this.displayMode = displayMode;
         setClickable(true);
+
+        for (AppCompatButton b : buttons) {
+            b.setStateListAnimator(null);
+        }
 
         boundaryPath = new Path();
         boundaryPaint = new Paint();
@@ -129,33 +126,45 @@ public class ControlDirection extends RelativeLayout implements CustomView {
 
         setWillNotDraw(false);
 
+        notifyListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            notifyData();
+            cancelAllEvent();
+        });
+        dataChangeListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            notifyData();
+            cancelAllEvent();
+            getData().addListener(notifyListener);
+        });
+        boundaryListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            boundaryPath = new Path();
+            invalidate();
+        });
+        visibilityListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            if (!visibilityProperty.get()) {
+                cancelAllEvent();
+            }
+        });
+        alphaListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            if (menu != null) {
+                setAlpha(menu.isHideAllViews() ? 0 : 1);
+            }
+        });
+
         post(() -> {
             notifyData();
             if (menu != null) {
-                menu.editModeProperty().addListener(invalidate -> {
-                    notifyData();
-                    cancelAllEvent();
-                });
+                menu.editModeProperty().addListener(notifyListener);
             }
-            dataProperty.addListener(invalidate -> Schedulers.androidUIThread().execute(() -> {
-                notifyData();
-                cancelAllEvent();
-                getData().addListener(i -> Schedulers.androidUIThread().execute(() -> {
-                    notifyData();
-                    cancelAllEvent();
-                }));
-            }));
-            getData().addListener(invalidate -> Schedulers.androidUIThread().execute(() -> {
-                notifyData();
-                cancelAllEvent();
-            }));
+            dataProperty.addListener(dataChangeListener);
+            getData().addListener(notifyListener);
             if (menu != null) {
-                menu.showViewBoundariesProperty().addListener(invalidate -> {
-                    boundaryPath = new Path();
-                    invalidate();
-                });
+                menu.showViewBoundariesProperty().addListener(boundaryListener);
+                setAlpha(menu.isHideAllViews() ? 0 : 1);
+                menu.hideAllViewsProperty().addListener(alphaListener);
             }
-            setReady(true);
+            if (listener != null) {
+                listener.onReady(this);
+            }
         });
     }
 
@@ -174,14 +183,19 @@ public class ControlDirection extends RelativeLayout implements CustomView {
         screenWidth = AndroidUtils.getScreenWidth(FCLApplication.getCurrentActivity());
         screenHeight = AndroidUtils.getScreenHeight(FCLApplication.getCurrentActivity());
 
+        notifyListener = invalidate -> Schedulers.androidUIThread().execute(this::notifyData);
+        dataChangeListener = invalidate -> Schedulers.androidUIThread().execute(() -> {
+            notifyData();
+            getData().addListener(notifyListener);
+        });
+        boundaryListener = null;
+        visibilityListener = null;
+        alphaListener = null;
+
         post(() -> {
             notifyData();
-            dataProperty.addListener(invalidate -> {
-                Schedulers.androidUIThread().execute(this::notifyData);
-                getData().addListener(i -> Schedulers.androidUIThread().execute(this::notifyData));
-            });
-            getData().addListener(invalidate -> Schedulers.androidUIThread().execute(this::notifyData));
-            setReady(true);
+            dataProperty.addListener(dataChangeListener);
+            getData().addListener(notifyListener);
         });
     }
 
@@ -243,11 +257,7 @@ public class ControlDirection extends RelativeLayout implements CustomView {
                                 (data.getBaseInfo().getVisibilityType() == BaseInfoData.VisibilityType.MENU && menu.getCursorMode() == FCLBridge.CursorEnabled)),
                         menu.cursorModeProperty(), parentVisibilityProperty()));
             }
-            visibilityProperty().addListener(observable -> {
-                if (!visibilityProperty.get()) {
-                    cancelAllEvent();
-                }
-            });
+            visibilityProperty().addListener(visibilityListener);
         }
     }
 
@@ -489,16 +499,23 @@ public class ControlDirection extends RelativeLayout implements CustomView {
                         downX = event.getX();
                         downY = event.getY();
                         downTime = System.currentTimeMillis();
-                        handleButtonEvent((int) event.getX(), (int) event.getY());
+                        int size = (getSize() * (1000 - (2 * getData().getStyle().getButtonStyle().getInterval()))) / 3000;
+                        int p1 = size + ((getSize() * getData().getStyle().getButtonStyle().getInterval()) / 1000);
+                        int x = (int) event.getX();
+                        int y = (int) event.getY();
+                        handleButtonEvent(x, y);
+                        startClick = x >= p1 && x <= p1 + size && y >= p1 && y <= p1 + size;
                         break;
                     case MotionEvent.ACTION_MOVE:
                         handleButtonEvent((int) event.getX(), (int) event.getY());
                         break;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
-                        if (System.currentTimeMillis() - downTime <= 100
+                        if (startClick &&
+                                System.currentTimeMillis() - downTime <= 100
                                 && Math.abs(event.getX() - downX) <= 10
                                 && Math.abs(event.getY() - downY) <= 10) {
+                            startClick = false;
                             clickCount++;
                             if (clickCount == 1) {
                                 firstClickTime = System.currentTimeMillis();
@@ -813,5 +830,17 @@ public class ControlDirection extends RelativeLayout implements CustomView {
     @Override
     public void switchParentVisibility() {
         setParentVisibility(!isParentVisibility());
+    }
+
+    @Override
+    public void removeListener() {
+        if (menu != null) {
+            menu.editModeProperty().removeListener(notifyListener);
+            menu.showViewBoundariesProperty().removeListener(boundaryListener);
+            visibilityProperty().removeListener(visibilityListener);
+            menu.hideAllViewsProperty().removeListener(alphaListener);
+        }
+        dataProperty.removeListener(dataChangeListener);
+        getData().removeListener(notifyListener);
     }
 }

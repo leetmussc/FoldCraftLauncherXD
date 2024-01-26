@@ -1,3 +1,20 @@
+/*
+ * Hello Minecraft! Launcher
+ * Copyright (C) 2020  huangyuhui <huanghongxun2008@126.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 package com.tungsten.fclcore.launch;
 
 import static com.tungsten.fclcore.util.Lang.mapOf;
@@ -5,6 +22,7 @@ import static com.tungsten.fclcore.util.Logging.LOG;
 import static com.tungsten.fclcore.util.Pair.pair;
 
 import android.content.Context;
+import android.os.Build;
 
 import com.google.gson.GsonBuilder;
 import com.tungsten.fclauncher.FCLConfig;
@@ -12,7 +30,7 @@ import com.tungsten.fclauncher.FCLauncher;
 import com.tungsten.fclauncher.bridge.FCLBridge;
 import com.tungsten.fclauncher.utils.Architecture;
 import com.tungsten.fclcore.auth.AuthInfo;
-import com.tungsten.fclauncher.FCLPath;
+import com.tungsten.fclauncher.utils.FCLPath;
 import com.tungsten.fclcore.game.Argument;
 import com.tungsten.fclcore.game.Arguments;
 import com.tungsten.fclcore.game.GameRepository;
@@ -33,6 +51,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.logging.Level;
+import java.util.stream.Collectors;
 
 public class DefaultLauncher extends Launcher {
 
@@ -44,18 +63,6 @@ public class DefaultLauncher extends Launcher {
         CommandBuilder res = new CommandBuilder();
 
         getCacioJavaArgs(res, version, options);
-
-        switch (options.getProcessPriority()) {
-            case HIGH:
-                // res.add("nice", "-n", "-5");
-                break;
-            case NORMAL:
-                // do nothing
-                break;
-            case LOW:
-                // res.add("nice", "-n", "5");
-                break;
-        }
 
         res.addAllWithoutParsing(options.getOverrideJavaArguments());
 
@@ -99,19 +106,19 @@ public class DefaultLauncher extends Launcher {
         res.addDefault("-Dminecraft.client.jar=", repository.getVersionJar(version).toString());
 
         // Using G1GC with its settings by default
-        if (options.getJava().getVersion() >= 8
-                && res.noneMatch(arg -> "-XX:-UseG1GC".equals(arg) || (arg.startsWith("-XX:+Use") && arg.endsWith("GC")))) {
-            res.addUnstableDefault("UnlockExperimentalVMOptions", true);
-            res.addUnstableDefault("UseG1GC", true);
-            res.addUnstableDefault("G1NewSizePercent", "20");
-            res.addUnstableDefault("G1ReservePercent", "20");
-            res.addUnstableDefault("MaxGCPauseMillis", "50");
-            res.addUnstableDefault("G1HeapRegionSize", "32m");
-        }
-
-        res.addUnstableDefault("UseAdaptiveSizePolicy", false);
-        res.addUnstableDefault("OmitStackTraceInFastThrow", false);
-        res.addUnstableDefault("DontCompileHugeMethods", false);
+//        if (options.getJava().getVersion() >= 8
+//                && res.noneMatch(arg -> "-XX:-UseG1GC".equals(arg) || (arg.startsWith("-XX:+Use") && arg.endsWith("GC")))) {
+//            res.addUnstableDefault("UnlockExperimentalVMOptions", true);
+//            res.addUnstableDefault("UseG1GC", true);
+//            res.addUnstableDefault("G1NewSizePercent", "20");
+//            res.addUnstableDefault("G1ReservePercent", "20");
+//            res.addUnstableDefault("MaxGCPauseMillis", "50");
+//            res.addUnstableDefault("G1HeapRegionSize", "32m");
+//        }
+//
+//        res.addUnstableDefault("UseAdaptiveSizePolicy", false);
+//        res.addUnstableDefault("OmitStackTraceInFastThrow", false);
+//        res.addUnstableDefault("DontCompileHugeMethods", false);
 
         // As 32-bit JVM allocate 320KB for stack by default rather than 64-bit version allocating 1MB,
         // causing Minecraft 1.13 crashed accounting for java.lang.StackOverflowError.
@@ -135,6 +142,7 @@ public class DefaultLauncher extends Launcher {
 
         res.addDefault("-Djava.io.tmpdir=", FCLPath.CACHE_DIR);
         res.addDefault("-Dos.name=", "Linux");
+        res.addDefault("-Dos.version=Android-", Build.VERSION.RELEASE);
         res.addDefault("-Dlwjgl.platform=", "FCL");
         res.addDefault("-Dorg.lwjgl.opengl.libname=", "${gl_lib_name}");
         res.addDefault("-Dfml.earlyprogresswindow=", "false");
@@ -143,6 +151,8 @@ public class DefaultLauncher extends Launcher {
         res.addDefault("-Duser.home=", options.getGameDir().getAbsolutePath());
         res.addDefault("-Duser.language=", System.getProperty("user.language"));
         res.addDefault("-Duser.timezone=", TimeZone.getDefault().getID());
+        res.addDefault("-Djna.boot.library.path=", context.getApplicationInfo().nativeLibraryDir);
+        res.addDefault("-Dorg.lwjgl.vulkan.libname=", "libvulkan.so");
 
         if (getInjectorArg() != null && options.isBeGesture()) {
             res.addDefault("-Dfcl.injector=", getInjectorArg());
@@ -153,11 +163,16 @@ public class DefaultLauncher extends Launcher {
             res.addDefault("-Dsort.patch=", "true");
         }
 
+        // Fix 1.16.x multiplayer
+        if (repository.getGameVersion(version).isPresent() && repository.getGameVersion(version).get().startsWith("1.16")) {
+            res.add("-javaagent:" + FCLPath.MULTIPLAYER_FIX_PATH);
+        }
+
         Set<String> classpath = repository.getClasspath(version);
 
-        File jar = repository.getVersionJar(version);
-        if (!jar.exists() || !jar.isFile())
-            throw new IOException("Minecraft jar does not exist");
+        File jar = new File(repository.getVersionRoot(version.getId()), version.getId() + ".jar");
+//        if (!jar.exists() || !jar.isFile())
+//            throw new IOException("Minecraft jar does not exist");
         classpath.add(jar.getAbsolutePath());
 
         // Provided Minecraft arguments
@@ -168,8 +183,8 @@ public class DefaultLauncher extends Launcher {
         configuration.put("${assets_root}", gameAssets.toAbsolutePath().toString());
 
         configuration.put("${natives_directory}", "${natives_directory}");
-
-        res.addAll(Arguments.parseArguments(version.getArguments().map(Arguments::getJvm).orElseGet(this::getDefaultJVMArguments), configuration));
+        List<String> jvmArgs = Arguments.parseArguments(version.getArguments().map(Arguments::getJvm).orElseGet(this::getDefaultJVMArguments), configuration);
+        res.addAll(jvmArgs.stream().filter(arg -> !arg.contains("-Djna.tmpdir=") && !arg.contains("-Dorg.lwjgl.system.SharedLibraryExtractPath=")).collect(Collectors.toList()));
         Arguments argumentsFromAuthInfo = authInfo.getLaunchArguments(options);
         if (argumentsFromAuthInfo != null && argumentsFromAuthInfo.getJvm() != null && !argumentsFromAuthInfo.getJvm().isEmpty())
             res.addAll(Arguments.parseArguments(argumentsFromAuthInfo.getJvm(), configuration));
@@ -377,7 +392,6 @@ public class DefaultLauncher extends Launcher {
     public FCLBridge launch() throws IOException, InterruptedException {
         final CommandBuilder command = generateCommandLine();
 
-        // To guarantee that when failed to generate launch command line, we will not call pre-launch command
         List<String> rawCommandLine = command.asList();
 
         if (rawCommandLine.stream().anyMatch(StringUtils::isBlank)) {
@@ -391,12 +405,14 @@ public class DefaultLauncher extends Launcher {
         String[] finalArgs = rawCommandLine.toArray(new String[0]);
 
         FCLConfig.Renderer renderer = options.getRenderer();
-        FCLConfig config = new FCLConfig(context,
+        FCLConfig config = new FCLConfig(
+                context,
                 FCLPath.LOG_DIR,
                 options.getJava().getVersion() == 8 ? FCLPath.JAVA_8_PATH : FCLPath.JAVA_17_PATH,
                 repository.getRunDirectory(version.getId()).getAbsolutePath(),
                 renderer,
-                finalArgs);
+                finalArgs
+        );
         return FCLauncher.launchMinecraft(config);
     }
 }

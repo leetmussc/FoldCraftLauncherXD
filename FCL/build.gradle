@@ -1,17 +1,33 @@
 plugins {
     id 'com.android.application'
+    id "org.hidetake.ssh" version "2.11.2"
 }
 
 android {
     namespace 'com.tungsten.fcl'
-    compileSdk 33
+    compileSdk 34
+
+    signingConfigs {
+        FCLKey {
+            def pwd = System.getenv("FCL_KEYSTORE_PASSWORD")
+            if (pwd == null) {
+                Properties prop = new Properties()
+                prop.load(new FileInputStream("${rootDir}/local.properties"))
+                pwd = prop.get("pwd")
+            }
+            storeFile file("../key-store.jks")
+            storePassword pwd
+            keyAlias "FCL-Key"
+            keyPassword pwd
+        }
+    }
 
     defaultConfig {
         applicationId "com.tungsten.fcl"
         minSdk 26
-        targetSdk 33
-        versionCode 1
-        versionName "1.0.0"
+        targetSdk 34
+        versionCode 15
+        versionName "1.1.3"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -20,11 +36,106 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.FCLKey
+        }
+        configureEach {
+            resValue "string", "app_version", "${defaultConfig.versionName}"
+        }
+    }
+    applicationVariants.configureEach { variant ->
+        variant.outputs.configureEach { output ->
+            def abi = output.getFilter(ABI)
+            if (abi == null) {
+                abi = "all"
+            }
+            variant.mergeAssetsProvider.get().doLast {
+                def arch = System.getProperty("arch", "all")
+                def assetsDir = mergeAssetsProvider.get().outputDir.get()
+                def java = ['jre8', 'jre17']
+                println(arch)
+                java.forEach { String str ->
+                    def runtimeDir = new File([assetsDir, "app_runtime/java/" + str].join(File.separator))
+                    println(runtimeDir)
+                    def files = fileTree(dir: runtimeDir, include: ['*.tar.xz'])
+                    files.forEach { File file ->
+                        if (arch != 'all' && !file.getName().contains(arch) && !file.getName().contains("universal")) {
+                            print("delete:${file} :")
+                            println(delete(file))
+                        }
+                    }
+                }
+            }
+            outputFileName = "FCL-${variant.buildType.name}-${defaultConfig.versionName}-${abi}.apk"
         }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+    splits {
+        def arch = System.getProperty("arch", "all")
+        if (arch != 'all') {
+            abi {
+                enable true
+                reset()
+                switch (arch) {
+                    case 'arm':
+                        include 'armeabi-v7a'
+                        break
+                    case 'arm64':
+                        include 'arm64-v8a'
+                        break
+                    case 'x86':
+                        include 'x86'
+                        break
+                    case 'x64':
+                        include 'x86_64'
+                        break
+                }
+            }
+        }
+    }
+}
+
+tasks.register('updateMap') {
+    doLast {
+        def list = []
+        new File("${rootDir}/version_map.json").withReader("UTF-8") { reader ->
+            reader.eachLine {
+                if (it.contains('versionCode')) {
+                    it = it.replaceAll('[0-9]+', "${android.defaultConfig.versionCode}")
+                } else if (it.contains("versionName")) {
+                    it = it.replaceAll(': ".+', ": \"${android.defaultConfig.versionName}\",")
+                } else if (it.contains("date")) {
+                    def date = new Date().format("yyyy.MM.dd", TimeZone.getTimeZone("UTC"))
+                    it = it.replaceAll(': ".+', ": \"${date}\",")
+                } else if (it.contains("url")) {
+                    it = it.replaceAll('download/.+"', "download/${android.defaultConfig.versionName}/FCL-release-${android.defaultConfig.versionName}.apk\"")
+                }
+                list.add(it + "\n")
+            }
+        }
+        new File("${rootDir}/version_map.json").withWriter("UTF-8") { writer ->
+            list.each {
+                writer.write(it)
+            }
+        }
+    }
+}
+
+task uploadMap(dependsOn: 'updateMap') {
+    doLast {
+        ssh.run {
+            session(remotes.debugServer) {
+                File file = file "${rootDir}/version_map.json"
+                put from: file.getAbsolutePath(), into: "/www/wwwroot/FCLApi/public/files"
+            }
+        }
     }
 }
 
@@ -36,11 +147,31 @@ dependencies {
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
     implementation 'org.apache.commons:commons-compress:1.23.0'
     implementation 'org.tukaani:xz:1.9'
+    implementation 'com.github.steveice10:opennbt:1.5'
     implementation 'com.google.code.gson:gson:2.10.1'
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.9.0'
+    implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}
+
+ssh.settings {
+    knownHosts = allowAnyHosts
+}
+
+remotes {
+    try {
+        Properties prop = new Properties()
+        prop.load(new FileInputStream("${rootDir}/local.properties"))
+        debugServer {
+            host = prop.getProperty("sftp.host")
+            port = prop.getProperty("sftp.port").toInteger()
+            user = prop.getProperty("sftp.username")
+            password = prop.getProperty("sftp.password")
+        }
+    } catch (Exception ignored) {
+
+    }
 }

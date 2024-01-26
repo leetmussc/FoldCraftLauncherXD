@@ -26,6 +26,7 @@ public class ViewManager {
     public void setup() {
         // Initialize menu view
         MenuView menuView = new MenuView(gameMenu.getActivity());
+        menuView.setElevation(114.0f);
         menuView.setup(gameMenu);
         gameMenu.getBaseLayout().addView(menuView);
         menuView.initPosition();
@@ -76,24 +77,18 @@ public class ViewManager {
     private void loadView(CustomControl control, boolean parentVisibility) {
         if (control instanceof ControlButtonData) {
             ControlButtonData data = (ControlButtonData) control;
-            ControlButton button = new ControlButton(gameMenu.getActivity(), gameMenu);
-            gameMenu.getBaseLayout().addView(button);
-            button.readyProperty().addListener(i -> {
-                if (button.isReady()) {
-                    button.setParentVisibility(parentVisibility);
-                    button.setData(data);
-                }
+            ControlButton button = new ControlButton(gameMenu.getActivity(), gameMenu, view -> {
+                ((ControlButton) view).setParentVisibility(parentVisibility);
+                ((ControlButton) view).setData(data);
             });
+            gameMenu.getBaseLayout().addView(button);
         } else {
             ControlDirectionData data = (ControlDirectionData) control;
-            ControlDirection direction = new ControlDirection(gameMenu.getActivity(), gameMenu, false);
-            gameMenu.getBaseLayout().addView(direction);
-            direction.readyProperty().addListener(i -> {
-                if (direction.isReady()) {
-                    direction.setParentVisibility(parentVisibility);
-                    direction.setData(data);
-                }
+            ControlDirection direction = new ControlDirection(gameMenu.getActivity(), gameMenu, false, view -> {
+                ((ControlDirection) view).setParentVisibility(parentVisibility);
+                ((ControlDirection) view).setData(data);
             });
+            gameMenu.getBaseLayout().addView(direction);
         }
     }
 
@@ -128,6 +123,7 @@ public class ViewManager {
             }
         }
         for (View v : views) {
+            ((CustomView) v).removeListener();
             gameMenu.getBaseLayout().removeView(v);
         }
     }
